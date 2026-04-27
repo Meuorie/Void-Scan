@@ -13,7 +13,7 @@ Description: The Unseen Auditor. Advanced system integrity, rootkit, entropy,
              behavioral forensics, and anomaly scoring engine.
 """
 
-import os, sys, time, hashlib, platform, subprocess, threading, socket, struct, datetime, re, math
+import os, sys, time, hashlib, platform, subprocess, threading, socket, struct, datetime, re, math, stat as stat_module
 from collections import Counter
 from pathlib import Path
 import psutil
@@ -97,6 +97,14 @@ class VoidScan:
             prob = count / len(data)
             if prob: entropy -= prob * math.log2(prob)
         return entropy
+
+    def _is_regular_file(self, filepath):
+        """Check if filepath is a regular file and not a socket/fifo"""
+        try:
+            mode = os.stat(filepath).st_mode
+            return stat_module.S_ISREG(mode)
+        except:
+            return False
 
     def scan_kernel_integrity(self):
         if self.os_env == 'Linux':
@@ -231,12 +239,13 @@ class VoidScan:
                         full = os.path.join(root, f)
                         entries.append(full)
                         try:
-                            with open(full, 'rb') as fh:
-                                content = fh.read()
-                                for sig in MALWARE_STRINGS:
-                                    if sig in content:
-                                        suspicious_entries.append(f"Autorun file {full} contains: {sig.decode('utf-8', errors='ignore')}")
-                                        break
+                            if self._is_regular_file(full):
+                                with open(full, 'rb') as fh:
+                                    content = fh.read()
+                                    for sig in MALWARE_STRINGS:
+                                        if sig in content:
+                                            suspicious_entries.append(f"Autorun file {full} contains: {sig.decode('utf-8', errors='ignore')}")
+                                            break
                         except: pass
             elif os.path.isfile(base):
                 entries.append(base)
@@ -260,6 +269,9 @@ class VoidScan:
                     for f in files:
                         filepath = os.path.join(root, f)
                         try:
+                            # SKIP non-regular files (sockets, pipes, devices, etc.)
+                            if not self._is_regular_file(filepath):
+                                continue
                             stat = os.stat(filepath)
                             if self.os_env == 'Linux' and (stat.st_mode & 0o4000):
                                 if directory in ['/tmp', '/var/tmp', '/dev/shm']:
@@ -277,7 +289,7 @@ class VoidScan:
                                         if sig in content:
                                             self.scan_results["files"].append({"Path": filepath, "Hash": "", "Reason": f"Matched pattern: {sig.decode('utf-8', errors='ignore')}"})
                                             break
-                        except (PermissionError, FileNotFoundError):
+                        except (PermissionError, FileNotFoundError, OSError):
                             pass
                 progress.advance(task)
 
@@ -289,6 +301,7 @@ class VoidScan:
                     for f in files:
                         path = os.path.join(root, f)
                         try:
+                            if not self._is_regular_file(path): continue
                             if os.path.getsize(path) > 1024 * 1024 * 10: continue
                             with open(path, 'rb') as fh:
                                 data = fh.read(8192)
