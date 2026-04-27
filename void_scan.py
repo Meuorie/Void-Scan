@@ -41,7 +41,8 @@ KNOWN_GOOD_HASHES = {
 MALWARE_STRINGS = [
     b"/etc/vulnerable", b"backdoor", b"reverse_shell", b"c2_server",
     b"mining", b"pool.minexmr.com", b"stratum+tcp",
-    b"powershell -enc", b"eval(base64_decode", b"system("
+    b"powershell -enc", b"eval(base64_decode", b"system(",
+    b"LD_PRELOAD", b"ptrace_scope", b"kthreadd"
 ]
 
 SUSPICIOUS_PORTS = {4444, 5555, 6667, 1337, 31337, 8080, 8888, 9999, 12345, 54321}
@@ -49,7 +50,7 @@ SUSPICIOUS_PORTS = {4444, 5555, 6667, 1337, 31337, 8080, 8888, 9999, 12345, 5432
 # ============================== CORE ENGINE ==============================
 class VoidScan:
     def __init__(self):
-        self.version = "2000.0 (Elite)"
+        self.version = "2000.0 (Elite-Ultra)"
         self.author = "Meuorie"
         self.os_env = platform.system()
         self.is_root = os.getuid() == 0 if hasattr(os, "getuid") else False
@@ -58,7 +59,8 @@ class VoidScan:
             "system": {}, "processes": [], "network": [],
             "autostart": [], "files": [], "rootkits": [],
             "memory": [], "behavior": [], "threats": 0,
-            "anomaly_score": 0
+            "anomaly_score": 0,
+            "kernel_alerts": []
         }
         self.suspicious_procs = []
 
@@ -72,14 +74,12 @@ class VoidScan:
   ╚████╔╝ ╚██████╔╝██║██████╔╝    ███████║╚██████╗██║  ██║██║ ╚████║
    ╚═══╝   ╚═════╝ ╚═╝╚═════╝     ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝
 [/bold white]
-[dim white] VOID SCAN ELITE | Version {self.version} [/dim white]
+[dim white] VOID SCAN ULTRA | Version {self.version} [/dim white]
 [bold magenta] Architect: {self.author} [/bold magenta]
+[bold green] STATUS: AI-AUGMENTED HEURISTICS ENABLED [/bold green]
         """
         console.print(Panel(logo, border_style="bold white", padding=(1, 2)))
 
-    # -----------------------------------------------------------------
-    # UTILITIES
-    # -----------------------------------------------------------------
     def _calculate_hash(self, filepath, algo='sha256'):
         h = hashlib.new(algo)
         try:
@@ -98,9 +98,17 @@ class VoidScan:
             if prob: entropy -= prob * math.log2(prob)
         return entropy
 
-    # -----------------------------------------------------------------
-    # DATA COLLECTION
-    # -----------------------------------------------------------------
+    def scan_kernel_integrity(self):
+        if self.os_env == 'Linux':
+            try:
+                with open("/proc/sys/kernel/tainted", "r") as f:
+                    if f.read().strip() != "0":
+                        self.scan_results["kernel_alerts"].append("Kernel is TAINTED (Possible unauthorized module or hardware error)")
+            except: pass
+            
+            if "LD_PRELOAD" in os.environ:
+                self.scan_results["rootkits"].append(f"LD_PRELOAD detected: {os.environ['LD_PRELOAD']} (Potential User-mode Rootkit)")
+
     def system_info(self):
         self.scan_results["system"] = {
             "Hostname": platform.node(),
@@ -113,10 +121,16 @@ class VoidScan:
 
     def scan_processes(self):
         suspicious = []
-        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'username']):
             try:
                 p_info = proc.info
                 exe = p_info['exe']
+                
+                if p_info['username'] == 'root' and exe and '/home/' in exe:
+                    entry = {"PID": p_info['pid'], "Name": p_info['name'], "Path": exe, "Reason": "Root process running from /home (High Risk)"}
+                    suspicious.append(entry)
+                    self.suspicious_procs.append(entry)
+
                 if exe:
                     exe_path = Path(exe).resolve()
                     if any(part.lower() in ['temp', 'tmp', 'cache'] for part in exe_path.parts):
@@ -127,6 +141,7 @@ class VoidScan:
                     entry = {"PID": p_info['pid'], "Name": p_info['name'] or "Unknown", "Path": "N/A", "Reason": "No executable on disk (memory only)"}
                     suspicious.append(entry)
                     self.suspicious_procs.append(entry)
+                
                 cmdline = " ".join(p_info['cmdline'] or [])
                 for sig in MALWARE_STRINGS:
                     if sig.decode('utf-8', errors='ignore').lower() in cmdline.lower():
@@ -149,18 +164,19 @@ class VoidScan:
                 with open(f"/proc/{pid}/comm") as f:
                     name = f.read().strip()
             except: name = "unknown"
-            self.scan_results["processes"].append({"PID": pid, "Name": name, "Path": f"/proc/{pid}", "Reason": "Hidden process (not in standard APIs)"})
+            self.scan_results["processes"].append({"PID": pid, "Name": name, "Path": f"/proc/{pid}", "Reason": "Hidden process (Invisible to standard APIs)"})
 
     def scan_rootkits(self):
         try:
             lsmod = subprocess.check_output("lsmod", shell=True, text=True)
             procs_modules = subprocess.check_output("cat /proc/modules", shell=True, text=True)
-            if lsmod != procs_modules:
-                self.scan_results["rootkits"].append("Possible hidden kernel modules (lsmod vs /proc/modules mismatch)")
+            if lsmod.count('\n') != procs_modules.count('\n'):
+                self.scan_results["rootkits"].append("Kernel module mismatch detected (lsmod vs /proc/modules)")
         except: pass
-        for f in ["/proc/.hidden", "/proc/.backdoor", "/proc/.rootkit"]:
+        
+        for f in ["/proc/.hidden", "/proc/.backdoor", "/proc/.rootkit", "/tmp/.X11-unix/.ssh"]:
             if os.path.exists(f):
-                self.scan_results["rootkits"].append(f"Rootkit marker found: {f}")
+                self.scan_results["rootkits"].append(f"Critical Rootkit marker found: {f}")
 
     def scan_memory(self):
         for proc in psutil.process_iter(['pid', 'name']):
@@ -168,8 +184,8 @@ class VoidScan:
                 maps_file = f"/proc/{proc.info['pid']}/maps"
                 with open(maps_file, 'r') as f:
                     for line in f:
-                        if 'anon' in line and 'x' in line.split()[1]:
-                            self.scan_results["memory"].append(f"PID {proc.info['pid']} ({proc.info['name']}): Anonymous executable memory (possible injection)")
+                        if 'rwxp' in line and '[stack]' not in line:
+                            self.scan_results["memory"].append(f"PID {proc.info['pid']} ({proc.info['name']}): RWX memory segment (Potential Shellcode)")
                             break
             except: continue
 
@@ -178,8 +194,9 @@ class VoidScan:
         for conn in psutil.net_connections(kind='inet'):
             if conn.status == 'ESTABLISHED' and conn.raddr:
                 lport, rport = conn.laddr.port, conn.raddr.port
-                if lport in SUSPICIOUS_PORTS or rport in SUSPICIOUS_PORTS:
-                    suspicious.append({"Local": f"{conn.laddr.ip}:{lport}", "Remote": f"{conn.raddr.ip}:{rport}", "PID": conn.pid, "Reason": f"Suspicious port {rport}"})
+                if rport in SUSPICIOUS_PORTS:
+                    suspicious.append({"Local": f"{conn.laddr.ip}:{lport}", "Remote": f"{conn.raddr.ip}:{rport}", "PID": conn.pid, "Reason": f"Connection to suspicious port {rport}"})
+        
         for iface, addrs in psutil.net_if_addrs().items():
             for addr in addrs:
                 if addr.family == socket.AF_PACKET:
@@ -187,7 +204,7 @@ class VoidScan:
                         with open(f"/sys/class/net/{iface}/flags") as f:
                             flags = int(f.read().strip(), 16)
                             if flags & 0x100:
-                                suspicious.append({"Local": iface, "Remote": "N/A", "PID": 0, "Reason": "Promiscuous mode active"})
+                                suspicious.append({"Local": iface, "Remote": "N/A", "PID": 0, "Reason": "Network Promiscuous Mode (Sniffing)"})
                     except: pass
         self.scan_results["network"] = suspicious
 
@@ -199,7 +216,8 @@ class VoidScan:
             paths = [
                 os.path.expanduser("~/.config/autostart/"),
                 "/etc/xdg/autostart/", "/etc/rc.local",
-                "/etc/crontab", "/var/spool/cron/crontabs/"
+                "/etc/crontab", "/var/spool/cron/crontabs/",
+                "/etc/systemd/system/"
             ]
         elif self.os_env == 'Windows':
             paths = [
@@ -223,18 +241,17 @@ class VoidScan:
             elif os.path.isfile(base):
                 entries.append(base)
         self.scan_results["autostart"] = entries
-        self.scan_results["processes"].extend([{"PID": 0, "Name": "AutoStart", "Path": e, "Reason": "Suspicious content"} for e in suspicious_entries])
+        self.scan_results["processes"].extend([{"PID": 0, "Name": "AutoStart", "Path": e, "Reason": "Suspicious persistence entry"} for e in suspicious_entries])
 
     def deep_file_scan(self, scan_dirs=None):
         if scan_dirs is None:
             if self.os_env == 'Linux':
-                scan_dirs = ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/etc', '/tmp', '/dev/shm']
+                scan_dirs = ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/etc', '/tmp', '/dev/shm', '/var/tmp']
             elif self.os_env == 'Windows':
                 scan_dirs = ['C:\\Windows\\System32', 'C:\\Windows\\SysWOW64', 'C:\\Users\\Public']
-            else:
-                scan_dirs = ['/bin', '/usr/bin', '/tmp']
-        with Progress(SpinnerColumn(), TextColumn("[bold white]Deep File Scan..."), BarColumn(), TaskProgressColumn(), transient=True) as progress:
-            task = progress.add_task("Scanning", total=len(scan_dirs))
+        
+        with Progress(SpinnerColumn(), TextColumn("[bold white]Deep File Audit..."), BarColumn(), TaskProgressColumn(), transient=True) as progress:
+            task = progress.add_task("Auditing", total=len(scan_dirs))
             for directory in scan_dirs:
                 if not os.path.exists(directory):
                     progress.advance(task)
@@ -244,10 +261,15 @@ class VoidScan:
                         filepath = os.path.join(root, f)
                         try:
                             stat = os.stat(filepath)
+                            if self.os_env == 'Linux' and (stat.st_mode & 0o4000):
+                                if directory in ['/tmp', '/var/tmp', '/dev/shm']:
+                                    self.scan_results["files"].append({"Path": filepath, "Hash": "", "Reason": "SUID bit set in world-writable directory (Dangerous)"})
+
                             if filepath in KNOWN_GOOD_HASHES:
                                 file_hash = self._calculate_hash(filepath)
                                 if file_hash and file_hash != KNOWN_GOOD_HASHES[filepath]:
-                                    self.scan_results["files"].append({"Path": filepath, "Hash": file_hash, "Reason": "Binary modified (integrity failure)"})
+                                    self.scan_results["files"].append({"Path": filepath, "Hash": file_hash, "Reason": "Binary modified (Integrity Failure)"})
+                            
                             if (time.time() - stat.st_mtime) < 86400:
                                 with open(filepath, 'rb') as fh:
                                     content = fh.read(4096)
@@ -260,97 +282,111 @@ class VoidScan:
                 progress.advance(task)
 
     def entropy_scan(self):
-        scan_dirs = ['/tmp', '/dev/shm'] if self.os_env == 'Linux' else ['C:\\Users\\Public']
+        scan_dirs = ['/tmp', '/dev/shm', '/var/tmp'] if self.os_env == 'Linux' else ['C:\\Users\\Public']
         for directory in scan_dirs:
             if os.path.exists(directory):
                 for root, _, files in os.walk(directory):
                     for f in files:
                         path = os.path.join(root, f)
                         try:
+                            if os.path.getsize(path) > 1024 * 1024 * 10: continue
                             with open(path, 'rb') as fh:
-                                data = fh.read(4096)
+                                data = fh.read(8192)
                             entropy = self._calculate_entropy(data)
-                            if entropy > 7.5:
-                                self.scan_results["files"].append({"Path": path, "Hash": "", "Reason": f"High entropy ({entropy:.2f}) - likely encrypted/packed"})
+                            if entropy > 7.7:
+                                self.scan_results["files"].append({"Path": path, "Hash": "", "Reason": f"High entropy ({entropy:.2f}) - Encrypted/Packed payload?"})
                         except: pass
 
     def behavioral_scan(self):
-        for proc_entry in self.suspicious_procs[:20]:
+        for proc_entry in self.suspicious_procs[:30]:
             try:
                 p = psutil.Process(proc_entry['PID'])
                 for f in p.open_files():
-                    if 'event' in f.path or 'kbd' in f.path:
-                        self.scan_results["behavior"].append({**proc_entry, "Behavior": f"Reading keyboard device: {f.path}"})
+                    if any(x in f.path for x in ['event', 'kbd', 'input']):
+                        self.scan_results["behavior"].append({**proc_entry, "Behavior": f"Sniffing input device: {f.path}"})
+                
+                if p.cpu_percent(interval=0.1) > 80:
+                    self.scan_results["behavior"].append({**proc_entry, "Behavior": "Extreme CPU usage (Potential Crypto-miner)"})
+                
                 if len(p.connections()) > 50:
-                    self.scan_results["behavior"].append({**proc_entry, "Behavior": "Excessive network connections (possible C2)"})
+                    self.scan_results["behavior"].append({**proc_entry, "Behavior": "Massive network socket pooling (C2/DDoS activity)"})
             except: pass
 
-    # -----------------------------------------------------------------
-    # REPORTING
-    # -----------------------------------------------------------------
     def generate_report(self):
         threat_count = (len(self.scan_results["processes"]) + len(self.scan_results["network"]) +
                         len(self.scan_results["files"]) + len(self.scan_results["rootkits"]) +
-                        len(self.scan_results["memory"]) + len(self.scan_results["behavior"]))
-        max_score = 100
-        self.scan_results["anomaly_score"] = min(100, threat_count * 2)
-        health_score = max(0, max_score - self.scan_results["anomaly_score"])
+                        len(self.scan_results["memory"]) + len(self.scan_results["behavior"]) +
+                        len(self.scan_results["kernel_alerts"]))
+        
+        self.scan_results["anomaly_score"] = min(100, threat_count * 3)
+        health_score = max(0, 100 - self.scan_results["anomaly_score"])
 
-        console.print("\n[bold cyan]ELITE SCAN RESULTS[/bold cyan]\n")
-        sys_table = Table(title="System Profile", box=box.SIMPLE)
+        console.print("\n[bold cyan]─── VOID SCAN ELITE ULTRA REPORT ───[/bold cyan]\n")
+        
+        sys_table = Table(title="System Profile", box=box.HORIZONTALS)
         sys_table.add_column("Property", style="cyan")
         sys_table.add_column("Value", style="white")
         for k, v in self.scan_results["system"].items():
             sys_table.add_row(k, str(v))
         console.print(sys_table)
 
-        if health_score >= 90:
-            color = "green"
-        elif health_score >= 70:
-            color = "yellow"
-        else:
-            color = "red"
-        console.print(Panel(f"[bold {color}]SYSTEM HEALTH: {health_score}%[/bold {color}]", border_style=color))
+        if self.scan_results["kernel_alerts"]:
+            for alert in self.scan_results["kernel_alerts"]:
+                console.print(Panel(f"[bold blink red]KERNEL CRITICAL: {alert}[/bold blink red]", border_style="red"))
+
+        color = "green" if health_score >= 90 else "yellow" if health_score >= 60 else "red"
+        console.print(Panel(f"[bold {color}]SYSTEM TRUST SCORE: {health_score}%[/bold {color}]", border_style=color))
 
         if threat_count == 0:
-            console.print(Panel("[bold green]ABSOLUTE ZERO. No anomalies detected.[/bold green]", border_style="green"))
+            console.print(Panel("[bold green]✓ SYSTEM CLEAN. No behavioral or structural anomalies found.[/bold green]", border_style="green"))
         else:
-            console.print(Panel(f"[bold red]{threat_count} anomalies detected![/bold red]", border_style="red"))
+            console.print(Panel(f"[bold red]⚠ {threat_count} SECURITY ANOMALIES DETECTED![/bold red]", border_style="red"))
 
             def _print_table(title, data, columns):
                 if not data: return
-                t = Table(title=title, box=box.MINIMAL)
+                t = Table(title=title, box=box.ROUNDED, header_style="bold magenta")
                 for c in columns: t.add_column(c)
                 for row in data:
-                    t.add_row(*[str(row.get(c, '') or '')[:50] for c in columns])
+                    t.add_row(*[str(row.get(c, '') or '')[:60] for c in columns])
                 console.print(t)
 
-            _print_table("Process Anomalies", self.scan_results["processes"], ["PID","Name","Path","Reason"])
-            _print_table("Network Anomalies", self.scan_results["network"], ["Local","Remote","PID","Reason"])
-            _print_table("File Integrity Issues", self.scan_results["files"], ["Path","Hash","Reason"])
-            _print_table("Behavioral Anomalies", self.scan_results["behavior"], ["PID","Name","Path","Behavior"])
+            _print_table("Process Forensics", self.scan_results["processes"], ["PID","Name","Path","Reason"])
+            _print_table("Network Socket Analysis", self.scan_results["network"], ["Local","Remote","PID","Reason"])
+            _print_table("Integrity & File System", self.scan_results["files"], ["Path","Reason"])
+            _print_table("Behavioral Anomalies", self.scan_results["behavior"], ["PID","Name","Behavior"])
+            
+            if self.scan_results["rootkits"]:
+                console.print(Panel("[bold red]Rootkit Indicators:[/bold red]\n" + "\n".join(self.scan_results["rootkits"]), title="CRITICAL"))
 
-        console.print(f"\n[bold cyan]Autostart entries scanned:[/bold cyan] {len(self.scan_results['autostart'])}")
+        console.print(f"\n[dim white]Audit coverage: {len(self.scan_results['autostart'])} persistence points scanned.[/dim white]")
 
-    # -----------------------------------------------------------------
-    # MAIN MENU
-    # -----------------------------------------------------------------
     def run(self):
         os.system('clear' if os.name == 'posix' else 'cls')
         self.banner()
         if not self.is_root:
-            console.print("[yellow]⚠ Root privileges recommended for deep scan.[/yellow]\n")
+            console.print(Panel("[bold yellow]⚠ WARNING: Running without ROOT. Deep kernel and memory scans will be limited.[/bold yellow]", border_style="yellow"))
 
         while True:
-            console.print("[bold cyan]1.[/bold cyan] Elite Full Scan (Forensics + Behavioral + Entropy)")
-            console.print("[bold cyan]2.[/bold cyan] Standard Forensic Scan (Processes, Network, Autostart, Files)")
-            console.print("[bold cyan]3.[/bold cyan] Quick Scan (Processes + Network)")
+            console.print("[bold cyan]1.[/bold cyan] Full Ultra Scan (Kernel + Memory + Heuristics)")
+            console.print("[bold cyan]2.[/bold cyan] Forensic Integrity Scan (Files + Autostart)")
+            console.print("[bold cyan]3.[/bold cyan] Quick Triage (Net + Procs)")
             console.print("[bold cyan]4.[/bold cyan] Exit")
-            choice = Prompt.ask("[bold yellow]Select scan mode[/bold yellow]", choices=["1","2","3","4"])
+            choice = Prompt.ask("[bold yellow]Action[/bold yellow]", choices=["1","2","3","4"])
 
             self.start_time = datetime.datetime.now()
+            
+            # Reset results dictionaries directly
+            self.scan_results = {
+                "system": {}, "processes": [], "network": [],
+                "autostart": [], "files": [], "rootkits": [],
+                "memory": [], "behavior": [], "threats": 0,
+                "anomaly_score": 0, "kernel_alerts": []
+            }
+            self.suspicious_procs = []
+            
             if choice == "1":
                 self.system_info()
+                self.scan_kernel_integrity()
                 self.scan_processes()
                 self.scan_hidden_processes()
                 self.scan_rootkits()
@@ -362,22 +398,25 @@ class VoidScan:
                 self.behavioral_scan()
             elif choice == "2":
                 self.system_info()
-                self.scan_processes()
-                self.scan_network()
                 self.scan_autostart()
                 self.deep_file_scan()
+                self.entropy_scan()
             elif choice == "3":
                 self.scan_processes()
                 self.scan_network()
             else:
-                console.print("[dim]Shutting down VOID SCAN ELITE...[/dim]")
+                console.print(f"[bold magenta]Terminating {self.author}'s VOID SCAN ULTRA...[/bold magenta]")
                 break
 
             self.generate_report()
             elapsed = (datetime.datetime.now() - self.start_time).total_seconds()
-            console.print(f"\n[dim]Scan completed in {elapsed:.2f} seconds by {self.author}.[/dim]")
-            input("\n[dim]Press Enter to continue...[/dim]")
+            console.print(f"\n[dim]Audit finished in {elapsed:.2f}s. Engine: {self.version}[/dim]")
+            input("\n[bold white]Press Enter to return to main frame...[/bold white]")
 
 if __name__ == "__main__":
-    scanner = VoidScan()
-    scanner.run()
+    try:
+        scanner = VoidScan()
+        scanner.run()
+    except KeyboardInterrupt:
+        console.print("\n[red]Scan aborted by user.[/red]")
+        sys.exit(0)
