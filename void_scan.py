@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-███████╗██╗   ██╗███████╗██████╗     ███████╗ ██████╗███████╗ █████╗ ███╗   ██╗
-██╔════╝██║   ██║██╔════╝██╔══██╗    ██╔════╝██╔════╝██╔════╝██╔══██╗████╗  ██║
-███████╗██║   ██║█████╗  ██████╔╝    ███████╗██║     █████╗  ███████║██╔██╗ ██║
-╚════██║██║   ██║██╔══╝  ██╔══██╗    ╚════██║██║     ██╔══╝  ██╔══██║██║╚██╗██║
-███████║╚██████╔╝███████╗██║  ██║    ███████║╚██████╗███████╗██║  ██║██║ ╚████║
-╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚══════╝ ╚═════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝
+██╗   ██╗ ██████╗ ██╗██████╗     ███████╗ ██████╗ █████╗ ███╗   ██╗
+██║   ██║██╔═══██╗██║██╔══██╗    ██╔════╝██╔════╝██╔══██╗████╗  ██║
+██║   ██║██║   ██║██║██║  ██║    ███████╗██║     ███████║██╔██╗ ██║
+╚██╗ ██╔╝██║   ██║██║██║  ██║    ╚════██║██║     ██╔══██║██║╚██╗██║
+ ╚████╔╝ ╚██████╔╝██║██████╔╝    ███████║╚██████╗██║  ██║██║ ╚████║
+  ╚═══╝   ╚═════╝ ╚═╝╚═════╝     ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝
 
-ABSOLUTE ZERO - VOIDSCAN 
+VOID SCAN - System Integrity & Forensic Auditor
 Author: Meuorie
-Description: The ultimate system integrity auditor. Forensics, rootkit, and anomaly detection.
+Description: Advanced system integrity, rootkit, and anomaly detection.
 """
 
 import os, sys, time, hashlib, platform, subprocess, threading, socket, struct, datetime, re, pwd, grp
@@ -74,19 +74,19 @@ class VoidScan:
             "memory": [],
             "threats": 0
         }
-        self.known_hash_db = KNOWN_GOOD_HASHES  # can be expanded
+        self.known_hash_db = KNOWN_GOOD_HASHES
 
     def banner(self):
         logo = f"""
 [bold white]
- ██╗   ██╗ ██████╗ ██╗██████╗     ███████╗ ██████╗███████╗ █████╗ ███╗   ██╗
- ██║   ██║██╔═══██╗██║██╔══██╗    ██╔════╝██╔════╝██╔════╝██╔══██╗████╗  ██║
- ██║   ██║██║   ██║██║██║  ██║    ███████╗██║     █████╗  ███████║██╔██╗ ██║
- ╚██╗ ██╔╝██║   ██║██║██║  ██║    ╚════██║██║     ██╔══╝  ██╔══██║██║╚██╗██║
-  ╚████╔╝ ╚██████╔╝██║██████╔╝    ███████║╚██████╗███████╗██║  ██║██║ ╚████║
-   ╚═══╝   ╚═════╝ ╚═╝╚═════╝     ╚══════╝ ╚═════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝
+ ██╗   ██╗ ██████╗ ██╗██████╗     ███████╗ ██████╗ █████╗ ███╗   ██╗
+ ██║   ██║██╔═══██╗██║██╔══██╗    ██╔════╝██╔════╝██╔══██╗████╗  ██║
+ ██║   ██║██║   ██║██║██║  ██║    ███████╗██║     ███████║██╔██╗ ██║
+ ╚██╗ ██╔╝██║   ██║██║██║  ██║    ╚════██║██║     ██╔══██║██║╚██╗██║
+  ╚████╔╝ ╚██████╔╝██║██████╔╝    ███████║╚██████╗██║  ██║██║ ╚████║
+   ╚═══╝   ╚═════╝ ╚═╝╚═════╝     ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝
 [/bold white]
-[dim white] ABSOLUTE ZERO THREAT ELIMINATOR | Version {self.version} [/dim white]
+[dim white] VOID SCAN | Version {self.version} [/dim white]
 [bold magenta] Architect: {self.author} [/bold magenta]
         """
         console.print(Panel(logo, border_style="bold white", padding=(1, 2)))
@@ -110,23 +110,18 @@ class VoidScan:
             "Boot Time": datetime.datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
         }
 
-    # -----------------------------------------------------------------
-    # Advanced Process Scan
-    # -----------------------------------------------------------------
     def scan_processes(self):
         suspicious = []
         for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
             try:
                 p_info = proc.info
                 exe = p_info['exe']
-                # Process from temp directory
                 if exe:
                     exe_path = Path(exe).resolve()
                     if any(part.lower() in ['temp', 'tmp', 'cache'] for part in exe_path.parts):
                         suspicious.append({"PID": p_info['pid'], "Name": p_info['name'], "Path": str(exe_path), "Reason": "Runs from temporary directory"})
                 else:
                     suspicious.append({"PID": p_info['pid'], "Name": p_info['name'] or "Unknown", "Path": "N/A", "Reason": "No executable on disk (memory only)"})
-                # Check for known malicious strings in command line
                 cmdline = " ".join(p_info['cmdline'] or [])
                 for sig in MALWARE_STRINGS:
                     if sig.decode('utf-8', errors='ignore').lower() in cmdline.lower():
@@ -136,9 +131,6 @@ class VoidScan:
                 continue
         self.scan_results["processes"] = suspicious
 
-    # -----------------------------------------------------------------
-    # Hidden Process Detection (compare /proc with psutil)
-    # -----------------------------------------------------------------
     def scan_hidden_processes(self):
         ps_pids = {p.pid for p in psutil.process_iter()}
         proc_pids = set()
@@ -153,9 +145,6 @@ class VoidScan:
             except: name = "unknown"
             self.scan_results["processes"].append({"PID": pid, "Name": name, "Path": f"/proc/{pid}", "Reason": "Hidden process (not in standard APIs)"})
 
-    # -----------------------------------------------------------------
-    # Rootkit detection via module comparison
-    # -----------------------------------------------------------------
     def scan_rootkits(self):
         try:
             lsmod = subprocess.check_output("lsmod", shell=True, text=True)
@@ -163,15 +152,11 @@ class VoidScan:
             if lsmod != procs_modules:
                 self.scan_results["rootkits"].append("Possible hidden kernel modules (lsmod vs /proc/modules mismatch)")
         except: pass
-        # Check for prominent rootkit signs in /proc
         suspicious_files = ["/proc/.hidden", "/proc/.backdoor", "/proc/.rootkit"]
         for f in suspicious_files:
             if os.path.exists(f):
                 self.scan_results["rootkits"].append(f"Rootkit marker found: {f}")
 
-    # -----------------------------------------------------------------
-    # Memory Forensic Checks
-    # -----------------------------------------------------------------
     def scan_memory(self):
         for proc in psutil.process_iter(['pid', 'name']):
             try:
@@ -183,32 +168,24 @@ class VoidScan:
                             break
             except: continue
 
-    # -----------------------------------------------------------------
-    # Network scan (promiscuous mode + suspicious ports)
-    # -----------------------------------------------------------------
     def scan_network(self):
         suspicious = []
-        # Standard connection check
         for conn in psutil.net_connections(kind='inet'):
             if conn.status == 'ESTABLISHED' and conn.raddr:
                 lport, rport = conn.laddr.port, conn.raddr.port
                 if lport in SUSPICIOUS_PORTS or rport in SUSPICIOUS_PORTS:
                     suspicious.append({"Local": f"{conn.laddr.ip}:{lport}", "Remote": f"{conn.raddr.ip}:{rport}", "PID": conn.pid, "Reason": f"Suspicious port {rport}"})
-        # Promiscuous mode check
         for iface, addrs in psutil.net_if_addrs().items():
             for addr in addrs:
                 if addr.family == socket.AF_PACKET:
                     try:
                         with open(f"/sys/class/net/{iface}/flags") as f:
                             flags = int(f.read().strip(), 16)
-                            if flags & 0x100:  # IFF_PROMISC
+                            if flags & 0x100:
                                 suspicious.append({"Local": iface, "Remote": "N/A", "PID": 0, "Reason": "Promiscuous mode active"})
                     except: pass
         self.scan_results["network"] = suspicious
 
-    # -----------------------------------------------------------------
-    # Autostart scanning + checking for suspicious entries
-    # -----------------------------------------------------------------
     def scan_autostart(self):
         entries = []
         suspicious_entries = []
@@ -232,7 +209,6 @@ class VoidScan:
                     for f in files:
                         full = os.path.join(root, f)
                         entries.append(full)
-                        # Check file content for malicious strings
                         try:
                             with open(full, 'rb') as fh:
                                 content = fh.read()
@@ -246,9 +222,6 @@ class VoidScan:
         self.scan_results["autostart"] = entries
         self.scan_results["processes"].extend([{"PID": 0, "Name": "AutoStart", "Path": e, "Reason": "Suspicious content"} for e in suspicious_entries])
 
-    # -----------------------------------------------------------------
-    # Deep File Scan (hashes + string search)
-    # -----------------------------------------------------------------
     def deep_file_scan(self, scan_dirs=None):
         if scan_dirs is None:
             if self.os_env == 'Linux':
@@ -268,16 +241,13 @@ class VoidScan:
                         filepath = os.path.join(root, f)
                         try:
                             stat = os.stat(filepath)
-                            # Check hash of known binaries
                             if filepath in self.known_hash_db:
                                 file_hash = self._calculate_hash(filepath)
                                 if file_hash and file_hash != self.known_hash_db[filepath]:
                                     self.scan_results["files"].append({"Path": filepath, "Hash": file_hash, "Reason": "Binary modified (integrity failure)"})
-                            # Check recently modified and string scan
                             if (time.time() - stat.st_mtime) < 86400:
-                                # String scan
                                 with open(filepath, 'rb') as fh:
-                                    content = fh.read(4096)  # first 4KB
+                                    content = fh.read(4096)
                                     for sig in MALWARE_STRINGS:
                                         if sig in content:
                                             self.scan_results["files"].append({"Path": filepath, "Hash": "", "Reason": f"Matched pattern: {sig.decode('utf-8', errors='ignore')}"})
@@ -286,9 +256,6 @@ class VoidScan:
                             pass
                 progress.advance(task)
 
-    # -----------------------------------------------------------------
-    # Report Generation
-    # -----------------------------------------------------------------
     def generate_report(self):
         console.print("\n[bold cyan]SCAN RESULTS[/bold cyan]\n")
         sys_table = Table(title="System Information", box=box.SIMPLE)
@@ -303,7 +270,7 @@ class VoidScan:
                         len(self.scan_results["memory"]))
 
         if threat_count == 0:
-            console.print(Panel("[bold green]SYSTEM IS CLEAN. Absolute Zero threats found.[/bold green]", border_style="green"))
+            console.print(Panel("[bold green]SYSTEM IS CLEAN. No threats found.[/bold green]", border_style="green"))
         else:
             console.print(Panel(f"[bold red]{threat_count} potential threats detected![/bold red]", border_style="red"))
 
@@ -351,7 +318,7 @@ class VoidScan:
             console.print("[yellow]⚠ Root privileges recommended for deep scan.[/yellow]\n")
 
         while True:
-            console.print("[bold cyan]1.[/bold cyan] God Mode (Full Forensics + Rootkit + Memory)")
+            console.print("[bold cyan]1.[/bold cyan] Full Forensic Scan (Rootkit, Memory, File Integrity)")
             console.print("[bold cyan]2.[/bold cyan] Standard Scan (Processes, Network, Autostart, Files)")
             console.print("[bold cyan]3.[/bold cyan] Quick Scan (Processes + Network)")
             console.print("[bold cyan]4.[/bold cyan] Exit")
@@ -377,7 +344,7 @@ class VoidScan:
                 self.scan_processes()
                 self.scan_network()
             else:
-                console.print("[dim]Shutting down Absolute Zero...[/dim]")
+                console.print("[dim]Shutting down VOID SCAN...[/dim]")
                 break
 
             self.generate_report()
